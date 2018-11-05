@@ -7,13 +7,16 @@ public class TransportProtocolImpl extends TransportProtocol {
 		super(networkEmulator);
 	}
 
-	private int A=0;
-	private int B=0;
+	private int SeqA=0;
+	private int AckB=0;
 	private int TamanhoPacket=20;	
 	private Packet pacote_A;
 	private Packet pacote_B;
 	
-	
+	/**
+	 * Funcao que ira transformar a Mensage em packet, onde sera enviada pelo metodo tolayer3
+	 * para isso usara uma variavel global pacote_A e preenchera com o cheacksum,seq e payload 
+	 */
 	@Override
 	public void A_output(Message message) {
 		
@@ -26,14 +29,11 @@ public class TransportProtocolImpl extends TransportProtocol {
 		//Uso do seq
 		//uso da variavel privada A como parametro pra montar o valor do seq;
 		CalcularValorSeqnum();
-		pacote_A.setSeqnum(A);
+		pacote_A.setSeqnum(SeqA);
 		
-		//enviando pacote		
-		System.out.println("--A:  Enviando pacote com seq "+pacote_A.getSeqnum() +" ");
-		networkEmulator.tolayer3(0, pacote_A);
 		
-		//StartTimer
-		//A_timerinterrupt();
+		EnviarPacote();
+		
 		
 		
 		
@@ -52,22 +52,30 @@ public class TransportProtocolImpl extends TransportProtocol {
 	 */
 	@Override
 	public void A_input(Packet packet) {
+		//caso seja uma mensagem de confirmacao recebimento
 		if(packet.getPayload()!=null) {
 			System.out.println("--A:  Confirmacao do pacote recebida com sucesso");
-			if(packet.getAcknum()==A+TamanhoPacket) {
+			
+			//para cronometro do timeout
+			networkEmulator.stoptimer(0);
+			
+			int valorEsperado=SeqA+TamanhoPacket;
+			if(packet.getAcknum()==valorEsperado) {
 				System.out.println("--A:  Acknum Correto!!!");
-				//networkEmulator.stoptimer(0);
+				
 				
 				//Atualizacoa do pacote 
-				A=packet.getAcknum();
+				SeqA=packet.getAcknum();
 				System.out.println("\n\n");
+				
 			}else {
 				System.out.println("--A:  Acknum Incorreto!!!");
 				System.out.println("\n\n");
 				System.out.println("--A:  Iniciar Reenvio do pacote");
-				networkEmulator.tolayer3(0, pacote_A);
-				//networkEmulator.stoptimer(0);
+				EnviarPacote();
 			}
+			
+		//caso noa seja uma mensagem de confirmacao recebimento	
 		}else {
 			System.out.println("--A:  Este pacote nao confirmacao de recebimento");
 		}
@@ -76,10 +84,14 @@ public class TransportProtocolImpl extends TransportProtocol {
 
 	@Override
 	public void A_timerinterrupt() {
-//		starttimer();
-		System.out.println("--A:  start a new timer!");
-		networkEmulator.starttimer(0, 1000000000);
+		System.out.println("--A:  TimeOut Estourado!! "
+				+ "\n Reenviando pacote com seq: " +pacote_A.getSeqnum());
+		EnviarPacote();
+		
+		
 	}
+	
+	
 	
 	/**
 	 * Funcao para inicializar o sistema do lado A
@@ -99,7 +111,7 @@ public class TransportProtocolImpl extends TransportProtocol {
 	@Override
 	public void B_input(Packet packet) {
 		//valida o seq do pacote recebido
-		if(packet.getSeqnum()==B) {
+		if(packet.getSeqnum()==AckB) {
 			System.out.println("--B:  Pacote seq: "+packet.getSeqnum()+" recebido com sucesso");
 			
 			//com o seq valido a funcao ira validar a sua string
@@ -110,16 +122,16 @@ public class TransportProtocolImpl extends TransportProtocol {
 				pacote_B.setAcknum(CalcularValoracknum());
 			}else {
 				System.out.println("--B:  Pacote corrompido");
-				pacote_B.setAcknum(B);
+				pacote_B.setAcknum(AckB);
 			}
 			
 		}else {
-			System.err.println("--B:  Pacote com seq incorreto, "+packet.getSeqnum());
-			pacote_B.setAcknum(B);
+			System.err.println("--B:  Pacote com seq incorreto, seq: "+packet.getSeqnum());
+			pacote_B.setAcknum(AckB);
 		}
 				
 		//envio da confirmacoa do pacote recebido
-		System.out.println("--B:  Envio da confirmacao do recebimento");
+		System.out.println("--B:  Envio da confirmacao do recebimento"+pacote_B.getAcknum());
 		networkEmulator.tolayer3(1, pacote_B);		
 		
 	}
@@ -166,16 +178,6 @@ public class TransportProtocolImpl extends TransportProtocol {
 			int numero;
 			numero=pacote.getPayload(ipayload);
 			result=result + numero;
-			
-			
-			//anotaçao pra converter em binario
-		////conversao de em binaria de cada char
-		//int valorBinario = pacote.getPayload(ipayload);
-		//String binaria = Integer.toBinaryString(valorBinario);
-		////System.out.println(binaria);
-		//
-		//int i = Integer.parseInt(binaria);
-		//System.out.println(i);
 		}	
 		return result;
 	}
@@ -185,7 +187,7 @@ public class TransportProtocolImpl extends TransportProtocol {
 	 * @return valor do tipo integer 
 	 */
 	private int CalcularValorSeqnum() {
-		int result=A;
+		int result=SeqA;
 		return result;
 	}
 	
@@ -194,8 +196,8 @@ public class TransportProtocolImpl extends TransportProtocol {
 	 * @return valor do tipo integer 
 	 */
 	private int CalcularValoracknum() {
-		B=B+TamanhoPacket;
-		int result=B;
+		AckB=AckB+TamanhoPacket;
+		int result=AckB;
 		return result;
 	}
 	
@@ -213,6 +215,16 @@ public class TransportProtocolImpl extends TransportProtocol {
 				return false;
 			}
 		
+	}
+	
+	
+	private void EnviarPacote() {
+		//StartTimer
+		networkEmulator.starttimer(0, 1000);
+				
+		//enviando pacote		
+		System.out.println("--A:  Enviando pacote com seq "+pacote_A.getSeqnum() );
+		networkEmulator.tolayer3(0, pacote_A);
 	}
 	
 	
